@@ -1,0 +1,17 @@
+# Python environment and generated files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Runtime data and local settings
+data/
+*.db
+.env
+.env.*
+!.env.example
+.claude/
+.vscode/
+.idea/

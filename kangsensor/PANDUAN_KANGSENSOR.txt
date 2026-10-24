@@ -1,0 +1,850 @@
+================================================================================
+     PANDUAN LENGKAP KANGSENSOR — DATA LEAKAGE PREVENTION CLI TOOL
+     Versi 0.1.0 | MBC Lab Telkom University | Cybersecurity Research
+================================================================================
+
+DAFTAR ISI
+----------
+  1. Apa Itu KangSensor?
+  2. Fungsi Utama
+  3. Arsitektur & Cara Kerja
+  4. Instalasi
+  5. Panduan Penggunaan Lengkap (semua command)
+  6. Built-in Rule Library (33 rules)
+  7. Contoh Skenario Nyata
+  8. Konfigurasi Lanjutan
+  9. Catatan Keamanan & Compliance UU PDP
+ 10. Troubleshooting
+
+
+================================================================================
+BAB 1 — APA ITU KANGSENSOR?
+================================================================================
+
+KangSensor (Kang Data Leakage Prevention Sensor) adalah sebuah CLI tool
+berbasis Python yang berfungsi sebagai penjaga data sensitif di komputer lokal.
+
+Tool ini MENDETEKSI data pribadi atau rahasia yang berpotensi bocor melalui:
+  - File di filesystem (dokumen, spreadsheet, log, config)
+  - Clipboard (copy-paste)
+  - Perubahan file secara real-time
+
+KangSensor TIDAK mengirim data ke internet. Semua proses berjalan 100% lokal.
+
+Perbedaan dengan DLP komersial:
+  ┌─────────────────────┬──────────────────────┬──────────────────────┐
+  │ Fitur               │ KangSensor           │ DLP Komersial        │
+  ├─────────────────────┼──────────────────────┼──────────────────────┤
+  │ Harga               │ Gratis / Open Source │ Mahal (lisensi)      │
+  │ Cloud dependency    │ Tidak ada            │ Biasanya ada         │
+  │ PII Indonesia       │ Built-in (NIK, NPWP) │ Perlu konfigurasi    │
+  │ UU PDP support      │ Ya (native)          │ Tergantung vendor    │
+  │ Audit trail         │ Hash chain tamper-   │ Varies               │
+  │                     │ evident              │                      │
+  │ Dapat diaudit       │ Ya (open source)     │ Tidak (black box)    │
+  └─────────────────────┴──────────────────────┴──────────────────────┘
+
+Target pengguna:
+  - IT Compliance Officer (audit UU PDP)
+  - Security Admin UKM / institusi
+  - Mahasiswa & peneliti keamanan informasi
+  - Personal user yang peduli privasi data
+
+
+================================================================================
+BAB 2 — FUNGSI UTAMA
+================================================================================
+
+FUNGSI 1 — FILE SCANNER (Scan Mode)
+-------------------------------------
+Melakukan pemindaian satu kali (one-shot) pada file atau folder.
+Tool membaca isi file, mencocokkan dengan 33+ pola PII/secret, dan
+melaporkan temuan lengkap dengan baris, confidence score, dan snippet.
+
+Format file yang discan: .txt .csv .json .xml .log .yaml .ini .env
+                          .xlsx .xls .docx .doc .pdf .sql .py .js .html
+
+Contoh penggunaan:
+  kangsensor scan C:\Users\Budi\Documents
+  kangsensor scan C:\laporan.csv --output hasil.json
+
+
+FUNGSI 2 — WATCH MODE (Continuous Monitor)
+--------------------------------------------
+Memantau folder secara real-time menggunakan watchdog file system observer.
+Setiap kali ada file dibuat atau dimodifikasi, langsung discan otomatis.
+Cocok untuk memantau folder kerja aktif seperti Documents, Downloads, Desktop.
+
+Contoh penggunaan:
+  kangsensor watch C:\Users\Budi\Documents
+  kangsensor watch C:\Projects --policy default
+
+
+FUNGSI 3 — CLIPBOARD MONITOR (dalam Daemon Mode)
+--------------------------------------------------
+Memantau clipboard setiap 500ms (default). Jika user meng-copy teks yang
+mengandung data sensitif (NIK, nomor kartu kredit, API key, dll), tool
+langsung memberikan peringatan desktop notification.
+
+Ini sangat berguna untuk mencegah copy-paste data sensitif ke tempat yang
+tidak aman (chat, email, dokumen tidak terenkripsi).
+
+
+FUNGSI 4 — FILE INTEGRITY BASELINE
+-------------------------------------
+Membuat "snapshot" hash SHA-256 dari setiap file dalam folder.
+Bisa diverifikasi nanti untuk mendeteksi apakah ada file yang:
+  - Dimodifikasi (isi berubah)
+  - Ditambah (file baru yang tidak ada di baseline)
+  - Dihapus (file baseline yang hilang)
+
+Berguna untuk: deteksi ransomware, unauthorized modification, audit trail.
+
+Contoh:
+  kangsensor baseline create C:\Data_Penting
+  (... beberapa hari kemudian ...)
+  kangsensor baseline verify C:\Data_Penting
+
+
+FUNGSI 5 — RULE ENGINE CUSTOM
+--------------------------------
+User bisa mendefinisikan pattern deteksi sendiri menggunakan file YAML.
+Setiap rule berisi: regex pattern, validator, severity, confidence base.
+
+Contoh: menambah rule deteksi nomor pegawai internal perusahaan.
+
+
+FUNGSI 6 — AUDIT LOG (Hash Chain)
+------------------------------------
+Setiap finding yang terdeteksi dicatat di database SQLite dengan mekanisme
+hash chain (mirip blockchain sederhana). Setiap baris audit memiliki:
+  - Hash baris sebelumnya + data baris ini = hash baris saat ini
+
+Jika ada yang memodifikasi log secara manual, rantai hash akan putus dan
+bisa dideteksi dengan perintah `kangsensor audit verify`.
+
+Ini memenuhi persyaratan "tamper-evident audit trail" yang umumnya
+dibutuhkan untuk compliance regulasi.
+
+
+FUNGSI 7 — POLICY ENFORCEMENT (Action Dispatcher)
+----------------------------------------------------
+Setiap rule dapat dikonfigurasi aksinya:
+
+  log        → Hanya catat ke audit log (silent)
+  alert      → Tampilkan desktop notification + catat ke log
+  quarantine → Pindahkan file ke folder karantina + catat ke log
+
+Contoh: file yang mengandung AWS Private Key langsung dikarantina,
+sedangkan email address hanya dicatat saja.
+
+
+================================================================================
+BAB 3 — ARSITEKTUR & CARA KERJA
+================================================================================
+
+ARSITEKTUR KESELURUHAN
+------------------------
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                        KANGSENSOR DAEMON                           │
+  │                                                                     │
+  │  ┌─────────────┐   ┌──────────────┐   ┌─────────────────────────┐  │
+  │  │ FileSensor  │   │ClipboardSensor│   │ (Network Sensor - TBD) │  │
+  │  │ (watchdog)  │   │(pyperclip    │   │ read-only / passive     │  │
+  │  │             │   │ poll 500ms)  │   │                         │  │
+  │  └──────┬──────┘   └──────┬───────┘   └──────────┬──────────────┘  │
+  │         │                 │                       │                 │
+  │         └─────────────────┴───────────────────────┘                 │
+  │                           │                                         │
+  │                           ▼                                         │
+  │                  ┌────────────────┐                                 │
+  │                  │   EVENT BUS    │  (pub-sub, synchronous)         │
+  │                  └───────┬────────┘                                 │
+  │                          │                                          │
+  │                          ▼                                          │
+  │         ┌────────────────────────────┐   ┌────────────────────┐    │
+  │         │       RULE ENGINE          │◄──│   RULE LIBRARY     │    │
+  │         │  - Pre-filter (binary?)    │   │  (YAML → compiled  │    │
+  │         │  - Regex match             │   │   regex + validator │    │
+  │         │  - Validator chain         │   │   chain)           │    │
+  │         │  - Confidence scoring      │   └────────────────────┘    │
+  │         │  - Finding dataclass       │                              │
+  │         └──────────────┬─────────────┘                             │
+  │                        │                                            │
+  │                        ▼                                            │
+  │              ┌─────────────────────┐                               │
+  │              │  ACTION DISPATCHER  │  (policy lookup dari config)  │
+  │              └────┬──────┬─────────┘                               │
+  │                   │      │                                          │
+  │         ┌─────────┘      └──────────────┐                          │
+  │         ▼                               ▼                           │
+  │  ┌─────────────┐               ┌───────────────┐                   │
+  │  │ LogAction   │               │  AlertAction  │                   │
+  │  │             │               │  (plyer notif)│                   │
+  │  └──────┬──────┘               └───────────────┘                   │
+  │         │                                                           │
+  │         ▼                      ┌───────────────────┐               │
+  │  ┌─────────────────────────┐   │  QuarantineAction │               │
+  │  │  SQLite Audit Log       │   │  (move to         │               │
+  │  │  (hash chain, tamper-   │   │  ~/.kangsensor/   │               │
+  │  │   evident)              │   │   quarantine/)    │               │
+  │  └─────────────────────────┘   └───────────────────┘               │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+ALUR KERJA RULE ENGINE (Per File)
+-----------------------------------
+
+  File diterima dari sensor
+        │
+        ▼
+  [Pre-filter] → apakah binary? (null bytes > 30% dari 8KB pertama)
+        │ Ya → SKIP
+        │ Tidak
+        ▼
+  [Text Extraction]
+    .txt/.csv/.log → baca langsung UTF-8
+    .xlsx          → openpyxl (baca cell values)
+    .docx          → python-docx (baca paragraf)
+    .pdf           → pypdf (extract text per halaman)
+        │
+        ▼
+  [Rule Matching] → untuk setiap rule:
+    1. Jalankan compiled regex → cari semua match
+    2. Untuk setiap match → jalankan validator chain:
+       - province_code: 2 digit pertama NIK valid? (+20 atau -40)
+       - context_keyword: ada kata NIK/KTP di ±50-80 char? (+25 atau -15)
+       - luhn_check: angka kartu kredit valid Luhn? (+15 atau -30)
+       - not_placeholder: bukan "changeme/example"? (tidak ada penalti)
+    3. Final confidence = base + semua adjustment validator
+    4. Jika confidence >= min_confidence → buat Finding
+        │
+        ▼
+  [Finding] berisi:
+    - rule_id, rule_name, severity
+    - file_path, line_no, offset
+    - snippet (max 100 char, redacted tengah jika panjang)
+    - confidence (0-100)
+    - timestamp, source (file/clipboard)
+        │
+        ▼
+  [Action Dispatcher] → lookup policy config → eksekusi aksi
+
+
+STRUKTUR FOLDER PROJECT
+------------------------
+
+  kangsensor/
+  ├── kangsensor/              ← package utama
+  │   ├── cli.py               ← semua perintah CLI (Click)
+  │   ├── daemon.py            ← controller daemon (start/stop/status)
+  │   ├── core/
+  │   │   ├── engine.py        ← RuleEngine + Finding dataclass
+  │   │   ├── event_bus.py     ← pub-sub internal
+  │   │   ├── audit.py         ← audit log hash chain (SQLite)
+  │   │   └── baseline.py      ← file integrity baseline (JSON)
+  │   ├── sensors/
+  │   │   ├── base.py          ← SensorBase abstract class
+  │   │   ├── file_sensor.py   ← watchdog observer + text extractor
+  │   │   └── clipboard_sensor.py ← pyperclip poll loop
+  │   ├── rules/
+  │   │   ├── library.py       ← YAML loader + regex compiler + validators
+  │   │   └── builtin/
+  │   │       ├── id_indonesia.yaml   ← NIK, NPWP, KK, BPJS, SIM, Paspor
+  │   │       ├── financial.yaml      ← kartu kredit, rekening bank, IBAN
+  │   │       ├── credentials.yaml    ← API key, private key, JWT, DB URL
+  │   │       └── pii_general.yaml    ← email, HP, SSN, tanggal lahir, alamat
+  │   ├── actions/
+  │   │   ├── base.py          ← ActionBase abstract class
+  │   │   ├── log_action.py    ← tulis ke audit log
+  │   │   ├── alert_action.py  ← desktop notification (plyer)
+  │   │   └── quarantine_action.py ← pindah file ke karantina
+  │   └── storage/
+  │       └── db.py            ← SQLite wrapper (thread-safe)
+  ├── config/
+  │   └── default.yaml         ← konfigurasi default
+  ├── tests/
+  │   ├── test_rules.py        ← 20 test cases deteksi PII
+  │   ├── test_engine.py       ← 14 test cases engine + audit
+  │   └── fixtures/            ← file contoh untuk testing
+  └── pyproject.toml           ← metadata & dependencies
+
+
+================================================================================
+BAB 4 — INSTALASI
+================================================================================
+
+PERSYARATAN
+-----------
+  - Python 3.10 atau lebih baru
+  - pip
+  - Windows 10/11 / Linux / macOS
+
+LANGKAH INSTALASI
+-----------------
+
+  1. Clone atau download project:
+     cd "D:\Portofolio Cyber Alif\Project 4 - Kang DLP CLI tools\kangsensor"
+
+  2. Install package (editable mode):
+     pip install -e .
+
+  3. Tambahkan Scripts ke PATH (Windows, sekali saja):
+     Sudah dilakukan otomatis. Buka terminal baru.
+
+  4. Set encoding (Windows PowerShell, setiap sesi):
+     $env:PYTHONIOENCODING="utf-8"
+
+     ATAU tambahkan ke PowerShell profile agar otomatis:
+     Add-Content $PROFILE '$env:PYTHONIOENCODING="utf-8"'
+
+  5. Verifikasi instalasi:
+     kangsensor --version
+     kangsensor rules list
+
+
+================================================================================
+BAB 5 — PANDUAN PENGGUNAAN LENGKAP
+================================================================================
+
+Sebelum semua perintah di bawah, pastikan sudah set:
+  $env:PYTHONIOENCODING="utf-8"
+
+------------------------------------------------------------------------
+PERINTAH 1: kangsensor scan
+Fungsi: Scan sekali jalan (one-shot) file atau folder
+------------------------------------------------------------------------
+
+SINTAKS:
+  kangsensor scan <PATH> [OPTIONS]
+
+OPTIONS:
+  --rules TEXT          Pilih rule: "all" (default) atau nama file YAML
+                        dipisah koma: "id_indonesia,credentials"
+  --output FILE         Simpan hasil ke file JSON
+  --min-confidence INT  Abaikan finding di bawah nilai ini (default: 50)
+  --verbose / -v        Tampilkan log detail
+  --config FILE         Gunakan file konfigurasi khusus
+
+CONTOH PENGGUNAAN:
+
+  # Scan satu file teks
+  kangsensor scan C:\Users\Budi\dokumen.txt
+
+  # Scan seluruh folder Documents
+  kangsensor scan C:\Users\Budi\Documents
+
+  # Scan hanya dengan rules Indonesia
+  kangsensor scan C:\Data --rules id_indonesia
+
+  # Scan credentials + financial saja
+  kangsensor scan C:\Projects --rules credentials,financial
+
+  # Simpan laporan ke JSON
+  kangsensor scan C:\Data --output laporan_dlp.json
+
+  # Scan dengan threshold confidence tinggi (kurangi false positive)
+  kangsensor scan C:\Data --min-confidence 70
+
+  # Scan dengan output verbose
+  kangsensor scan C:\Data --verbose
+
+CONTOH OUTPUT:
+  Loaded 33 rules.
+  ╭──────────┬──────────────────┬──────┬──────────────┬────────────╮
+  │ Severity │ Rule ID          │ File │ Line │ Conf % │ Snippet    │
+  ├──────────┼──────────────────┼──────┼──────┼────────┼────────────┤
+  │ HIGH     │ ID_NIK           │ data │  3   │  100%  │ NIK: 3273… │
+  │ HIGH     │ ID_NPWP          │ data │  4   │  115%  │ NPWP: 12. │
+  ╰──────────┴──────────────────┴──────┴──────┴────────┴────────────╯
+  2 finding(s) in 1 file(s).
+
+EXIT CODE:
+  0 = Tidak ada temuan (atau hanya LOW/INFO)
+  1 = Ada temuan dengan severity HIGH atau CRITICAL
+
+------------------------------------------------------------------------
+PERINTAH 2: kangsensor watch
+Fungsi: Pantau folder secara real-time, scan otomatis saat ada perubahan
+------------------------------------------------------------------------
+
+SINTAKS:
+  kangsensor watch <PATH> [OPTIONS]
+
+OPTIONS:
+  --policy TEXT    Nama policy dari config (default: "default")
+  --config FILE    File konfigurasi khusus
+  --verbose / -v   Log detail
+
+CONTOH PENGGUNAAN:
+
+  # Pantau folder Documents dengan policy default
+  kangsensor watch C:\Users\Budi\Documents
+
+  # Pantau folder kerja
+  kangsensor watch C:\Projects\laporan-keuangan
+
+  # Gunakan policy khusus
+  kangsensor watch C:\Data --policy strict
+
+  Tekan CTRL+C untuk menghentikan.
+
+CARA KERJA WATCH MODE:
+  1. Watchdog mendaftarkan listener ke OS file system event
+  2. Saat ada file dibuat/dimodifikasi → masuk antrian scan
+  3. ThreadPool (4 worker) memproses antrian secara paralel
+  4. Jika ada finding → aksi sesuai policy (log/alert/quarantine)
+  5. Semua finding dicatat ke audit log
+
+------------------------------------------------------------------------
+PERINTAH 3: kangsensor daemon
+Fungsi: Jalankan semua sensor (file + clipboard) sebagai background process
+------------------------------------------------------------------------
+
+SUB-PERINTAH:
+
+  kangsensor daemon start [--config FILE]
+    → Jalankan daemon (file sensor + clipboard sensor aktif)
+    → Di Windows: berjalan di foreground thread (Ctrl+C untuk stop)
+    → Di Linux/macOS: fork ke background, buat PID file
+
+  kangsensor daemon stop
+    → Kirim sinyal SIGTERM ke daemon yang berjalan
+    → Hapus PID file
+
+  kangsensor daemon status
+    → Tampilkan apakah daemon sedang berjalan + PID nya
+
+CONTOH:
+  kangsensor daemon start
+  kangsensor daemon status
+  kangsensor daemon stop
+
+------------------------------------------------------------------------
+PERINTAH 4: kangsensor rules
+Fungsi: Kelola dan uji rule deteksi
+------------------------------------------------------------------------
+
+SUB-PERINTAH:
+
+  kangsensor rules list [--severity LEVEL]
+    → Tampilkan semua rules yang tersedia
+    → Filter berdasarkan severity: CRITICAL/HIGH/MEDIUM/LOW/INFO
+
+  kangsensor rules test "<TEKS>"
+    → Uji teks langsung terhadap semua rules
+    → Berguna untuk testing sebelum scan folder besar
+
+CONTOH:
+  # Lihat semua rules
+  kangsensor rules list
+
+  # Lihat hanya rules CRITICAL
+  kangsensor rules list --severity CRITICAL
+
+  # Test string NIK
+  kangsensor rules test "NIK saya 3273011234567890"
+
+  # Test apakah AWS key terdeteksi
+  kangsensor rules test "AKIAIOSFODNN7EXAMPLE"
+
+  # Test email dan nomor HP
+  kangsensor rules test "email: budi@company.co.id HP: 081234567890"
+
+  # Test NPWP
+  kangsensor rules test "NPWP: 12.345.678.9-012.345"
+
+------------------------------------------------------------------------
+PERINTAH 5: kangsensor audit
+Fungsi: Lihat dan verifikasi audit log tamper-evident
+------------------------------------------------------------------------
+
+SUB-PERINTAH:
+
+  kangsensor audit show [--since DATE] [--limit N] [--config FILE]
+    → Tampilkan entri audit log terbaru
+    → --since : filter dari tanggal tertentu (format: 2024-01-15)
+    → --limit : jumlah baris ditampilkan (default: 50)
+
+  kangsensor audit verify [--config FILE]
+    → Verifikasi integritas hash chain audit log
+    → Jika ada baris yang dimodifikasi manual → terdeteksi
+
+CONTOH:
+  # Lihat 20 audit log terbaru
+  kangsensor audit show --limit 20
+
+  # Lihat log sejak 1 Januari 2025
+  kangsensor audit show --since 2025-01-01
+
+  # Verifikasi integritas log (untuk audit UU PDP)
+  kangsensor audit verify
+
+OUTPUT verify:
+  PASS  Chain intact — 47 entries verified.
+  FAIL  Hash mismatch at row id=12       ← ada yang dimodifikasi!
+
+------------------------------------------------------------------------
+PERINTAH 6: kangsensor baseline
+Fungsi: Buat dan verifikasi integritas file (deteksi perubahan)
+------------------------------------------------------------------------
+
+SUB-PERINTAH:
+
+  kangsensor baseline create <PATH> [--config FILE]
+    → Scan seluruh file di PATH
+    → Hash setiap file dengan SHA-256
+    → Simpan snapshot ke ~/.kangsensor/baseline.json
+
+  kangsensor baseline verify <PATH> [--config FILE]
+    → Bandingkan kondisi sekarang dengan baseline tersimpan
+    → Tampilkan: file yang dimodifikasi, ditambah, atau dihapus
+
+CONTOH:
+  # Buat baseline folder penting
+  kangsensor baseline create C:\Data_Keuangan
+
+  # (... beberapa hari kemudian, atau setelah insiden ...)
+
+  # Verifikasi apakah ada yang berubah
+  kangsensor baseline verify C:\Data_Keuangan
+
+OUTPUT verify:
+  MODIFIED (2):
+    ~ laporan_q1.xlsx
+    ~ konfigurasi.ini
+
+  ADDED (1):
+    + dokumen_baru.pdf
+
+  REMOVED (0):
+  (tidak ada file dihapus)
+
+
+================================================================================
+BAB 6 — BUILT-IN RULE LIBRARY (33 Rules)
+================================================================================
+
+KATEGORI: id_indonesia (7 rules)
+----------------------------------
+  ID_NIK          Nomor Induk Kependudukan (16 digit)        HIGH      70
+  ID_NPWP         Nomor Pokok Wajib Pajak (XX.XXX.XXX.X-...)HIGH      90
+  ID_NPWP_RAW     NPWP tanpa format titik (15 digit)         MEDIUM    55
+  ID_KK           Nomor Kartu Keluarga (16 digit)            HIGH      65
+  ID_BPJS_KES     Nomor BPJS Kesehatan (13 digit)            MEDIUM    60
+  ID_SIM          Nomor SIM (12-14 digit)                    MEDIUM    50
+  ID_PASPOR       Nomor Paspor Indonesia ([A-Z][0-9]{7})     HIGH      75
+
+KATEGORI: financial (9 rules)
+--------------------------------
+  FIN_CC_VISA     Visa Card (4xxxx, Luhn-validated)          CRITICAL  80
+  FIN_CC_MASTERCARD  Mastercard (5xxxx / 2xxx, Luhn)         CRITICAL  80
+  FIN_CC_AMEX     American Express (3[47]xxx, Luhn)          CRITICAL  80
+  FIN_CC_GENERIC  Format XXXX-XXXX-XXXX-XXXX                HIGH      65
+  FIN_REKENING_BCA     Rekening BCA (10 digit)               HIGH      55
+  FIN_REKENING_MANDIRI Rekening Mandiri (13 digit, awalan 1) HIGH      55
+  FIN_REKENING_BRI     Rekening BRI (15 digit)               HIGH      55
+  FIN_IBAN        IBAN Internasional                         HIGH      75
+  FIN_SWIFT       Kode SWIFT/BIC                             MEDIUM    60
+
+KATEGORI: credentials (9 rules)
+----------------------------------
+  CRED_AWS_ACCESS_KEY   AWS Access Key (AKIA...)             CRITICAL  95
+  CRED_AWS_SECRET_KEY   AWS Secret Key                       CRITICAL  90
+  CRED_PRIVATE_KEY      PEM Private Key header               CRITICAL  99
+  CRED_GITHUB_TOKEN     GitHub PAT (ghp_/gho_/ghu_/ghs_)    CRITICAL  95
+  CRED_GOOGLE_API_KEY   Google API Key (AIza...)             CRITICAL  95
+  CRED_SLACK_TOKEN      Slack Token (xox...)                 CRITICAL  95
+  CRED_JWT              JSON Web Token (eyJ.eyJ.xxx)         HIGH      85
+  CRED_GENERIC_SECRET   Password/secret assignment           HIGH      60
+  CRED_DB_CONN_STRING   Koneksi DB (postgresql://...)        HIGH      85
+
+KATEGORI: pii_general (8 rules)
+----------------------------------
+  PII_EMAIL         Alamat email                             LOW       80
+  PII_PHONE_ID      Nomor HP Indonesia (08x, +628x)         MEDIUM    80
+  PII_PHONE_INTL    Nomor HP internasional (+x...)           LOW       55
+  PII_IPV4          IP private (10.x, 192.168.x, 172.16.x)  INFO      55
+  PII_SSN_US        US Social Security Number                HIGH      85
+  PII_DOB           Tanggal lahir (DD/MM/YYYY)               MEDIUM    60
+  PII_NAME_SALUTATION Nama dengan sapaan (Bapak/Ibu/Mr.)    INFO      45
+  PII_ADDRESS_ID    Alamat Indonesia (Jl./Jalan/Gang)        LOW       55
+
+CARA BACA CONFIDENCE BASE:
+  Ini adalah skor awal sebelum validator dijalankan.
+  Validator dapat menambah (+15 s/d +25) atau mengurangi (-15 s/d -40) skor.
+  Finding hanya muncul jika final confidence >= min_confidence (biasanya 50-60).
+
+  Contoh ID_NIK:
+    - Base: 70
+    - Province code valid (32=Jabar): +20 → 90
+    - Keyword "NIK" ditemukan di konteks: +25 → 115 (cap 100)
+    - Hasil: confidence = 100% ✓
+
+
+================================================================================
+BAB 7 — CONTOH SKENARIO NYATA
+================================================================================
+
+SKENARIO 1: Audit Folder Dokumen Karyawan
+-------------------------------------------
+  Situasi: HR ingin tahu apakah ada file yang mengandung NIK/NPWP karyawan
+  yang tersimpan tanpa enkripsi.
+
+  Langkah:
+    kangsensor scan C:\HRDocuments --rules id_indonesia --output audit_hr.json
+    kangsensor audit show --limit 100
+
+  Jika ditemukan → enkripsi file tersebut atau pindahkan ke sistem aman.
+
+
+SKENARIO 2: Monitor Real-time Folder Laporan Keuangan
+-------------------------------------------------------
+  Situasi: Tim Finance menerima kiriman file dari klien ke folder shared.
+  Ingin otomatis terdeteksi jika ada nomor rekening atau kartu kredit.
+
+  Langkah:
+    kangsensor watch C:\SharedFolder\LaporanKeuangan --policy default
+
+  Setiap file masuk akan langsung discan. Jika ada FIN_CC_VISA → alert.
+
+
+SKENARIO 3: Cek Config File Sebelum Push ke Git
+-------------------------------------------------
+  Situasi: Developer ingin memastikan tidak ada API key atau password
+  yang tidak sengaja masuk ke file config sebelum push ke repository.
+
+  Langkah:
+    kangsensor scan C:\Projects\MyApp --rules credentials --min-confidence 70
+
+  Jika exit code = 1 → ada credential terdeteksi, jangan push!
+  Bisa diintegrasikan ke pre-commit hook:
+    # .git/hooks/pre-commit
+    kangsensor scan . --rules credentials --min-confidence 70
+
+
+SKENARIO 4: Verifikasi Integritas File Server Bulanan
+------------------------------------------------------
+  Situasi: Admin ingin tahu apakah ada file konfigurasi server yang berubah
+  selama sebulan (indikasi unauthorized modification atau malware).
+
+  Langkah awal bulan:
+    kangsensor baseline create C:\Server\Config
+
+  Akhir bulan:
+    kangsensor baseline verify C:\Server\Config
+
+  Jika ada file MODIFIED → investigasi.
+
+
+SKENARIO 5: Clipboard Monitor Saat Kerja Remote
+-------------------------------------------------
+  Situasi: Karyawan WFH bekerja dengan data sensitif. Ingin alert jika
+  secara tidak sengaja meng-copy NIK atau nomor rekening ke clipboard
+  (misalnya sebelum paste ke WhatsApp/email tidak terenkripsi).
+
+  Langkah:
+    kangsensor daemon start
+
+  Clipboard otomatis dipantau setiap 500ms.
+  Jika copy "NIK: 3273011234567890" → muncul desktop notification.
+
+
+================================================================================
+BAB 8 — KONFIGURASI LANJUTAN
+================================================================================
+
+FILE KONFIGURASI
+-----------------
+  Default: [folder project]/config/default.yaml
+  User:    C:\Users\[nama]\.kangsensor\config.yaml  (override default)
+
+STRUKTUR KONFIGURASI:
+
+  sensors:
+    file:
+      enabled: true
+      paths:
+        - "C:/Users/Budi/Documents"
+        - "C:/Projects"
+      poll_ms: 1000
+    clipboard:
+      enabled: true
+      poll_ms: 500        ← cek clipboard setiap 500ms
+
+  rules:
+    builtin:
+      - id_indonesia      ← aktifkan hanya rule tertentu
+      - financial
+      - credentials
+      - pii_general
+    custom_dir: "~/.kangsensor/rules/custom"  ← folder rule custom Anda
+
+  policies:
+    default:
+      ID_NIK: alert              ← notifikasi + log
+      ID_NPWP: alert
+      FIN_CC_VISA: alert
+      CRED_AWS_ACCESS_KEY: quarantine   ← pindah file ke karantina
+      CRED_PRIVATE_KEY: quarantine
+      PII_EMAIL: log             ← diam-diam dicatat saja
+      CRED_GENERIC_SECRET: log
+
+  audit:
+    db_path: "~/.kangsensor/audit.db"
+    retention_days: 90    ← simpan log 90 hari
+
+  quarantine:
+    dir: "~/.kangsensor/quarantine"   ← lokasi file yang dikarantina
+
+MEMBUAT RULE CUSTOM
+--------------------
+  1. Buat file: ~/.kangsensor/rules/custom/perusahaan.yaml
+  2. Format:
+
+     rules:
+       - id: CORP_EMP_ID
+         name: "Nomor Karyawan Internal"
+         severity: MEDIUM
+         pattern: '\bEMP-\d{6}\b'
+         validators:
+           - type: context_keyword
+             keywords: ["karyawan", "employee", "pegawai"]
+             window: 50
+         confidence_base: 80
+         min_confidence: 60
+
+  3. Rule otomatis dimuat saat scan berikutnya.
+
+LEVEL SEVERITY TERSEDIA:
+  CRITICAL → data sangat sensitif, risiko tinggi (AWS key, private key)
+  HIGH     → PII penting (NIK, NPWP, kartu kredit)
+  MEDIUM   → data pribadi umum (HP, BPJS)
+  LOW      → potensi PII (email, alamat)
+  INFO     → informatif saja (IP internal, nama sapaan)
+
+
+================================================================================
+BAB 9 — CATATAN KEAMANAN & COMPLIANCE UU PDP
+================================================================================
+
+UNDANG-UNDANG PDP (UU No. 27 Tahun 2022)
+------------------------------------------
+KangSensor dirancang untuk membantu compliance dengan UU Pelindungan Data
+Pribadi Indonesia, khususnya:
+
+  Pasal 20-22  : Kewajiban identifikasi dan pencatatan data pribadi
+                 → Gunakan `scan` + `audit show` untuk inventarisasi
+
+  Pasal 35     : Kewajiban mengambil langkah teknis perlindungan data
+                 → Gunakan `watch` + policy `quarantine` sebagai safeguard
+
+  Pasal 46     : Kewajiban memberitahu insiden kebocoran data
+                 → Audit log hash-chain sebagai bukti forensik
+
+PERINGATAN PENTING:
+  1. KangSensor adalah ALAT BANTU, bukan produk bersertifikat compliance.
+     Untuk sertifikasi formal, diperlukan auditor terakreditasi.
+
+  2. Network Sensor (future feature) beroperasi PASIF / READ-ONLY.
+     KangSensor tidak pernah memblokir atau mengubah lalu lintas jaringan.
+     Tidak ada kernel module, tidak ada proxy, tidak ada MITM.
+
+  3. Data yang diproses TIDAK pernah dikirim ke server eksternal.
+     Semua pemrosesan 100% lokal.
+
+  4. Audit log tersimpan di:
+     C:\Users\[nama]\.kangsensor\audit.db
+     Amankan file ini dengan permission yang tepat.
+
+  5. File yang dikarantina di:
+     C:\Users\[nama]\.kangsensor\quarantine\
+     File TIDAK dihapus, hanya dipindahkan. Review secara berkala.
+
+DATA PRIBADI YANG DILINDUNGI UU PDP (relevan dengan KangSensor):
+  ✓ Nama lengkap               → PII_NAME_SALUTATION
+  ✓ Nomor Identitas (NIK, KTP) → ID_NIK
+  ✓ Nomor NPWP                 → ID_NPWP
+  ✓ Nomor rekening bank        → FIN_REKENING_*
+  ✓ Data keuangan / kartu      → FIN_CC_*
+  ✓ Nomor telepon              → PII_PHONE_ID
+  ✓ Alamat email               → PII_EMAIL
+  ✓ Tanggal lahir              → PII_DOB
+  ✓ Alamat tempat tinggal      → PII_ADDRESS_ID
+
+
+================================================================================
+BAB 10 — TROUBLESHOOTING
+================================================================================
+
+MASALAH: "kangsensor" tidak dikenali sebagai perintah
+SOLUSI:
+  1. Pastikan sudah instalasi: pip install -e .
+  2. Set PATH di PowerShell:
+     $env:PATH += ";C:\Users\[nama]\AppData\Roaming\Python\Python314\Scripts"
+  3. Buka terminal baru (PATH permanen sudah diset ke user profile)
+
+---
+
+MASALAH: Karakter aneh / error encoding di output
+SOLUSI:
+  $env:PYTHONIOENCODING="utf-8"
+  Tambahkan ke profile:
+  Add-Content $PROFILE '$env:PYTHONIOENCODING="utf-8"'
+
+---
+
+MASALAH: File .xlsx/.docx tidak terscan
+SOLUSI:
+  pip install openpyxl python-docx
+
+---
+
+MASALAH: File .pdf tidak terscan
+SOLUSI:
+  pip install pypdf
+
+---
+
+MASALAH: clipboard sensor tidak bekerja
+SOLUSI:
+  pip install pyperclip
+  Di Linux: sudo apt install xclip  (atau xsel)
+
+---
+
+MASALAH: Terlalu banyak false positive
+SOLUSI:
+  Naikkan min-confidence: kangsensor scan <path> --min-confidence 70
+  Atau edit policy di config: set rule tersebut ke "log" bukan "alert"
+
+---
+
+MASALAH: Audit log corrupt / verify gagal
+SOLUSI:
+  Jangan edit file audit.db manual.
+  Jika sudah terlanjut korup, backup lama dan buat audit log baru:
+  Rename: ~\.kangsensor\audit.db → audit_backup.db
+
+---
+
+MASALAH: File yang dikarantina ingin dikembalikan
+SOLUSI:
+  Buka folder: C:\Users\[nama]\.kangsensor\quarantine\
+  Rename file: hapus bagian ".[sha256_16char].quarantined"
+  Pindahkan kembali ke lokasi asal
+
+---
+
+KONTAK & KONTRIBUSI
+  GitHub    : [link repo]
+  Lab       : MBC Lab Telkom University
+  Peneliti  : Cybersecurity Research Group
+  Lisensi   : MIT
+
+
+================================================================================
+  KANGSENSOR v0.1.0 — "Data tidak bocor bukan karena keberuntungan,
+                        tapi karena alat yang tepat."
+================================================================================

@@ -1,0 +1,63 @@
+sensors:
+  file:
+    enabled: true
+    paths:
+      - "~/Documents"
+    poll_ms: 1000
+  clipboard:
+    enabled: true
+    poll_ms: 500
+
+rules:
+  builtin:
+    - id_indonesia
+    - financial
+    - credentials
+    - pii_general
+  custom_dir: "~/.kangsensor/rules/custom"
+
+policies:
+  default:
+    # Indonesian PII
+    ID_NIK: alert
+    ID_NPWP: alert
+    ID_NPWP_RAW: log
+    ID_KK: alert
+    ID_BPJS_KES: log
+    ID_PASPOR: alert
+    # Financial
+    FIN_CC_VISA: alert
+    FIN_CC_MASTERCARD: alert
+    FIN_CC_AMEX: alert
+    FIN_CC_GENERIC: alert
+    FIN_REKENING_BCA: log
+    FIN_REKENING_MANDIRI: log
+    FIN_REKENING_BRI: log
+    # Credentials
+    CRED_AWS_ACCESS_KEY: quarantine
+    CRED_AWS_SECRET_KEY: quarantine
+    CRED_PRIVATE_KEY: quarantine
+    CRED_GITHUB_TOKEN: quarantine
+    CRED_GOOGLE_API_KEY: alert
+    CRED_SLACK_TOKEN: alert
+    CRED_JWT: log
+    CRED_GENERIC_SECRET: log
+    CRED_DB_CONN_STRING: alert
+    # General PII
+    PII_EMAIL: log
+    PII_PHONE_ID: log
+    PII_SSN_US: alert
+
+audit:
+  db_path: "~/.kangsensor/audit.db"
+  retention_days: 90
+
+baseline:
+  db_path: "~/.kangsensor/baseline.json"
+
+quarantine:
+  dir: "~/.kangsensor/quarantine"
+
+logging:
+  level: INFO
+  file: "~/.kangsensor/kangsensor.log"

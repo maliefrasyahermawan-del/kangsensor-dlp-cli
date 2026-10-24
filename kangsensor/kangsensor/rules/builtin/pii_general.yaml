@@ -1,0 +1,73 @@
+rules:
+  - id: PII_EMAIL
+    name: "Email Address"
+    severity: LOW
+    pattern: '\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b'
+    confidence_base: 80
+    min_confidence: 70
+    description: Standard RFC 5322-ish email address.
+
+  - id: PII_PHONE_ID
+    name: "Nomor Telepon Indonesia"
+    severity: MEDIUM
+    pattern: '\b(?:\+62|62|0)8[1-9]\d{7,11}\b'
+    confidence_base: 80
+    min_confidence: 65
+    description: Indonesian mobile numbers starting with 08x or +628x.
+
+  - id: PII_PHONE_INTL
+    name: "International Phone Number"
+    severity: LOW
+    pattern: '\+[1-9]\d{7,14}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["phone", "tel", "mobile", "hp", "handphone", "telepon", "whatsapp"]
+        window: 60
+    confidence_base: 55
+    min_confidence: 55
+
+  - id: PII_IPV4
+    name: "IPv4 Address (Private / Sensitive)"
+    severity: INFO
+    pattern: '\b(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["ip", "address", "server", "host", "gateway", "network"]
+        window: 80
+    confidence_base: 55
+    min_confidence: 50
+    description: Private-range IPv4 addresses. Often found in config files.
+
+  - id: PII_SSN_US
+    name: "US Social Security Number"
+    severity: HIGH
+    pattern: '\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b'
+    confidence_base: 85
+    min_confidence: 70
+
+  - id: PII_DOB
+    name: "Date of Birth Pattern"
+    severity: MEDIUM
+    pattern: '\b(?:0?[1-9]|[12]\d|3[01])[/\-](?:0?[1-9]|1[0-2])[/\-](?:19|20)\d{2}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["tanggal lahir", "TTL", "DOB", "date of birth", "born", "lahir"]
+        window: 80
+    confidence_base: 60
+    min_confidence: 55
+
+  - id: PII_NAME_SALUTATION
+    name: "Full Name with Salutation"
+    severity: INFO
+    pattern: '(?i)\b(?:Bapak|Ibu|Pak|Bu|Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4}\b'
+    confidence_base: 45
+    min_confidence: 45
+    description: Heuristic name detection using Indonesian/English salutations.
+
+  - id: PII_ADDRESS_ID
+    name: "Alamat Indonesia (Jalan/Gang)"
+    severity: LOW
+    pattern: '(?i)(?:Jl\.|Jalan|Gang|Gg\.)\s+[A-Z][A-Za-z\s]{3,50}(?:No\.?\s*\d{1,4})?'
+    confidence_base: 55
+    min_confidence: 50
+    description: Indonesian street address heuristic.

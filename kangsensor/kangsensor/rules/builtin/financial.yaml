@@ -1,0 +1,94 @@
+rules:
+  - id: FIN_CC_VISA
+    name: "Visa Credit Card Number"
+    severity: CRITICAL
+    pattern: '\b4[0-9]{12}(?:[0-9]{3})?\b'
+    validators:
+      - type: luhn_check
+      - type: context_keyword
+        keywords: ["visa", "card", "kartu", "kredit", "debit", "payment"]
+        window: 100
+    confidence_base: 80
+    min_confidence: 60
+    description: Visa card 13 or 16 digits; Luhn-validated.
+
+  - id: FIN_CC_MASTERCARD
+    name: "Mastercard Credit Card Number"
+    severity: CRITICAL
+    pattern: '\b(?:5[1-5][0-9]{14}|2(?:2[2-9][1-9]|2[3-9][0-9]|[3-6][0-9]{2}|7[01][0-9]|720)[0-9]{12})\b'
+    validators:
+      - type: luhn_check
+    confidence_base: 80
+    min_confidence: 60
+
+  - id: FIN_CC_AMEX
+    name: "American Express Card Number"
+    severity: CRITICAL
+    pattern: '\b3[47][0-9]{13}\b'
+    validators:
+      - type: luhn_check
+    confidence_base: 80
+    min_confidence: 60
+
+  - id: FIN_CC_GENERIC
+    name: "Generic Credit/Debit Card"
+    severity: HIGH
+    # 13-16 digit groups separated by spaces or hyphens
+    pattern: '\b(?:\d{4}[\s\-]){3}\d{4}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["card", "kartu", "kredit", "debit", "cvv", "exp", "expiry"]
+        window: 100
+    confidence_base: 65
+    min_confidence: 55
+
+  - id: FIN_REKENING_BCA
+    name: "Nomor Rekening BCA (10 digit)"
+    severity: HIGH
+    pattern: '\b\d{10}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["BCA", "rekening", "tabungan", "transfer"]
+        window: 60
+    confidence_base: 55
+    min_confidence: 55
+
+  - id: FIN_REKENING_MANDIRI
+    name: "Nomor Rekening Bank Mandiri (13 digit)"
+    severity: HIGH
+    pattern: '\b1\d{12}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["Mandiri", "rekening", "tabungan", "transfer"]
+        window: 60
+    confidence_base: 55
+    min_confidence: 55
+
+  - id: FIN_REKENING_BRI
+    name: "Nomor Rekening BRI (15 digit)"
+    severity: HIGH
+    pattern: '\b\d{15}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["BRI", "rekening", "tabungan", "transfer"]
+        window: 60
+    confidence_base: 55
+    min_confidence: 55
+
+  - id: FIN_IBAN
+    name: "IBAN (International Bank Account Number)"
+    severity: HIGH
+    pattern: '\b[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7}(?:[A-Z0-9]{0,16})\b'
+    confidence_base: 75
+    min_confidence: 60
+
+  - id: FIN_SWIFT
+    name: "SWIFT / BIC Code"
+    severity: MEDIUM
+    pattern: '\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b'
+    validators:
+      - type: context_keyword
+        keywords: ["swift", "BIC", "wire transfer", "transfer internasional"]
+        window: 80
+    confidence_base: 60
+    min_confidence: 55

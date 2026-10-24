@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kangsensor"
+version = "0.1.0"
+description = "KangSensor - Lightweight Data Leakage Prevention CLI tuned for Indonesian PII (NIK, NPWP, etc.)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "MBC Telkom University Lab" }
+]
+keywords = ["dlp", "security", "pii", "compliance", "uu-pdp", "indonesia"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+
+dependencies = [
+    "watchdog>=3.0",
+    "pyperclip>=1.8",
+    "click>=8.1",
+    "pyyaml>=6.0",
+    "plyer>=2.1",
+    "rich>=13.0",
+    "openpyxl>=3.1",
+    "python-docx>=1.1",
+    "pypdf>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+kangsensor = "kangsensor.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["kangsensor*"]
+
+[tool.setuptools.package-data]
+"kangsensor" = ["rules/builtin/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

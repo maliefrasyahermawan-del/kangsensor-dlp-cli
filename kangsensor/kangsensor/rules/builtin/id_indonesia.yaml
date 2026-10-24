@@ -1,0 +1,88 @@
+rules:
+  - id: ID_NIK
+    name: "Nomor Induk Kependudukan (NIK / KTP)"
+    severity: HIGH
+    # 16 contiguous digits; province prefix 11-99 (no 30,40,50 blocks)
+    pattern: '\b\d{16}\b'
+    validators:
+      - type: province_code
+      - type: context_keyword
+        keywords: ["NIK", "KTP", "Nomor Induk", "kependudukan", "e-KTP"]
+        window: 80
+    confidence_base: 70
+    min_confidence: 50
+    description: >
+      Nomor Induk Kependudukan adalah nomor identitas nasional 16 digit
+      yang diterbitkan Dukcapil. Termasuk data pribadi sensitif per UU PDP.
+
+  - id: ID_NPWP
+    name: "Nomor Pokok Wajib Pajak (NPWP)"
+    severity: HIGH
+    pattern: '\b\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["NPWP", "pajak", "Wajib Pajak", "SPT"]
+        window: 80
+    confidence_base: 90
+    min_confidence: 60
+    description: >
+      NPWP format standar XX.XXX.XXX.X-XXX.XXX. Data perpajakan dilindungi
+      UU Keterbukaan Informasi dan UU PDP.
+
+  - id: ID_NPWP_RAW
+    name: "NPWP (tanpa format titik)"
+    severity: MEDIUM
+    pattern: '\b\d{15}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["NPWP", "pajak", "Wajib Pajak"]
+        window: 60
+    confidence_base: 55
+    min_confidence: 55
+    description: Plain 15-digit NPWP without formatting separators.
+
+  - id: ID_KK
+    name: "Nomor Kartu Keluarga (KK)"
+    severity: HIGH
+    pattern: '\b\d{16}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["KK", "Kartu Keluarga", "nomor kartu keluarga"]
+        window: 80
+    confidence_base: 65
+    min_confidence: 55
+    description: >
+      Nomor KK juga 16 digit; dibedakan dari NIK lewat context keyword.
+
+  - id: ID_BPJS_KES
+    name: "Nomor BPJS Kesehatan"
+    severity: MEDIUM
+    pattern: '\b\d{13}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["BPJS", "JKN", "peserta", "kartu sehat"]
+        window: 60
+    confidence_base: 60
+    min_confidence: 55
+
+  - id: ID_SIM
+    name: "Nomor SIM (Surat Izin Mengemudi)"
+    severity: MEDIUM
+    pattern: '\b\d{12,14}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["SIM", "surat izin mengemudi", "lisensi mengemudi"]
+        window: 60
+    confidence_base: 50
+    min_confidence: 55
+
+  - id: ID_PASPOR
+    name: "Nomor Paspor Indonesia"
+    severity: HIGH
+    pattern: '\b[A-Z]\d{7}\b'
+    validators:
+      - type: context_keyword
+        keywords: ["paspor", "passport", "imigrasi"]
+        window: 60
+    confidence_base: 75
+    min_confidence: 60
